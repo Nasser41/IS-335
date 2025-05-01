@@ -44,7 +44,7 @@ def create_ride_request():
 
         cur.execute(
             """
-            SELECT multiplier
+            SELECT area_id, multiplier
             FROM surge_areas
             WHERE ST_Contains(
                 region,
@@ -54,7 +54,12 @@ def create_ride_request():
             """, (plon, plat)
         )
         row = cur.fetchone()
-        surge_mul = row['multiplier'] if row else 1.0
+        if row:
+            surge_area_id = row['area_id']
+            surge_mul = row['multiplier']
+        else:
+            surge_area_id = None
+            surge_mul = 1.0
 
         est_price = calculate_fare(dist_km, dur_min, vtype, surge_mul)
 
@@ -70,21 +75,12 @@ def create_ride_request():
                 gen_random_uuid(), %s,
                 ST_SetSRID(ST_MakePoint(%s, %s),4326),
                 ST_SetSRID(ST_MakePoint(%s, %s),4326),
-                %s, %s,
-                (SELECT area_id
-                FROM surge_areas
-                WHERE ST_Contains(
-                    region,
-                    ST_SetSRID(ST_MakePoint(%s, %s),4326)
-                )
-                LIMIT 1
-            ),
-            %s, 'requested'
+                %s, %s, %s, %s, 'requested'
             )
             RETURNING request_id
         """, (
             rider_id, plon, plat, dlon, dlat,
-            est_price, dur_min, plon, plat, vtype
+            est_price, dur_min, surge_area_id, vtype
         ))
         req_id = cur.fetchone()['request_id']
 
@@ -131,7 +127,6 @@ def create_ride_request():
         conn.close()
 
 
-
 @app.route('/ride_requests/<request_id>/accept', methods=['POST'])
 def accept_ride(request_id):
     data = request.get_json()
@@ -163,7 +158,6 @@ def accept_ride(request_id):
                 JOIN vehicles v ON v.driver_id = d.user_id
             WHERE d.user_id = %s
                 AND d.status  = 'online'
-                AND v.type    = %s
                 AND ST_DWithin(
                     d.current_location::geography,
                     %s::geography,
@@ -212,5 +206,5 @@ def accept_ride(request_id):
         conn.close()
 
 if __name__ == '__main__':
-    app.run(debug=True, port=6666)
+    app.run(debug=True, port=5005)
 
